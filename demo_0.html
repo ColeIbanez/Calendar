@@ -9,10 +9,12 @@
       font-family: Arial, sans-serif;
       padding: 20px;
     }
+
     table {
       border-collapse: collapse;
       width: 100%;
     }
+
     th, td {
       border: 1px solid #ccc;
       padding: 4px;
@@ -21,17 +23,21 @@
       vertical-align: middle;
       cursor: pointer;
     }
+
     th {
       background-color: #f0f0f0;
       font-weight: bold;
       cursor: default;
     }
+
     .week-cell {
       border-top: 2px solid #333;
     }
+
     .weekend {
       background-color: #ffe6e6;
     }
+
     .day-col {
       width: 40px;
       font-weight: bold;
@@ -40,6 +46,40 @@
 
     .today {
       background-color: yellow !important;
+    }
+
+    /* Marker for days that have events */
+    .has-events::after {
+      content: "";
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin: 2px auto 0;
+      background-color: #007bff;
+    }
+
+    /* Top actions (export/import) */
+    #actions {
+      margin-bottom: 10px;
+    }
+
+    #actions button {
+      margin-right: 8px;
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #importExportArea {
+      width: 100%;
+      height: 120px;
+      margin: 10px 0 20px;
+      padding: 8px;
+      box-sizing: border-box;
+      font-family: monospace;
+      font-size: 12px;
+      display: none;
     }
 
     /* Day View popup */
@@ -56,19 +96,85 @@
       box-sizing: border-box;
       z-index: 999;
     }
+
     #closeDayView {
       font-size: 24px;
       cursor: pointer;
       margin-bottom: 20px;
       width: fit-content;
     }
+
     #dayViewContent {
       font-size: 24px;
+      margin-bottom: 10px;
+    }
+
+    #newEventBoxBtn {
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      align-self: flex-start;
+    }
+
+    #eventSpace {
+      width: 100%;
+      height: 70vh;
+      margin-top: 20px;
+      padding: 10px;
+      box-sizing: border-box;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .event-box {
+      padding: 10px;
+      border-radius: 8px;
+      border: 2px solid #999;
+      background: #f8f8f8;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .event-box textarea {
+      width: 100%;
+      height: 80px;
+      font-size: 16px;
+      padding: 8px;
+      box-sizing: border-box;
+      resize: none;
+    }
+
+    .event-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .color-picker {
+      cursor: pointer;
+    }
+
+    .delete-event {
+      cursor: pointer;
+      color: red;
+      font-weight: bold;
     }
   </style>
 </head>
 <body>
   <h1>Year Calendar</h1>
+
+  <div id="actions">
+    <button id="exportBtn">Export Events</button>
+    <button id="importBtn">Import Events</button>
+  </div>
+  <textarea id="importExportArea" placeholder="Exported events will appear here. To import, paste JSON and click Import."></textarea>
 
   <table id="calendar"></table>
 
@@ -76,6 +182,8 @@
   <div id="dayView">
     <div id="closeDayView">✖</div>
     <div id="dayViewContent"></div>
+    <button id="newEventBoxBtn">Add Event Box</button>
+    <div id="eventSpace"></div>
   </div>
 
   <script>
@@ -87,21 +195,228 @@
     const dayView = document.getElementById("dayView");
     const closeDayView = document.getElementById("closeDayView");
     const dayViewContent = document.getElementById("dayViewContent");
+    const newEventBoxBtn = document.getElementById("newEventBoxBtn");
+    const eventSpace = document.getElementById("eventSpace");
+    const exportBtn = document.getElementById("exportBtn");
+    const importBtn = document.getElementById("importBtn");
+    const importExportArea = document.getElementById("importExportArea");
 
-    closeDayView.addEventListener('click', () => {
-      dayView.style.display = 'none';
+    const STORAGE_KEY = `yearCalendarEvents-${year}`;
+
+    let eventsByDate = {};
+    let currentDateId = null;
+
+    // ----- Load from localStorage -----
+    (function loadFromStorage() {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === 'object') {
+            eventsByDate = parsed;
+          }
+        }
+      } catch (e) {
+        console.error('Error loading events from storage', e);
+        eventsByDate = {};
+      }
+    })();
+
+    function saveEventsToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(eventsByDate));
+      } catch (e) {
+        console.error('Error saving events to storage', e);
+      }
+    }
+
+    // ----- Date helpers -----
+    function formatDateId(year, monthIndex, day) {
+      const mm = String(monthIndex + 1).padStart(2, "0");
+      const dd = String(day).padStart(2, "0");
+      return `${year}-${mm}-${dd}`; // internal ID
+    }
+
+    function formatDisplayDate(year, monthIndex, day) {
+      const dateObj = new Date(year, monthIndex, day);
+      // e.g. "Wednesday, November 19, 2025"
+      return dateObj.toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric"
+      });
+    }
+
+    // ----- Event box helpers -----
+    function createEventBox(event = {}) {
+      const color = event.color || "#f8f8f8";
+      const text = event.text || "";
+
+      const box = document.createElement("div");
+      box.classList.add("event-box");
+
+      const controls = document.createElement("div");
+      controls.classList.add("event-controls");
+
+      const colorPicker = document.createElement("input");
+      colorPicker.type = "color";
+      colorPicker.classList.add("color-picker");
+      colorPicker.value = color;
+      box.style.backgroundColor = color;
+
+      colorPicker.addEventListener("input", () => {
+        box.style.backgroundColor = colorPicker.value;
+        saveCurrentDayEvents();
+      });
+
+      const deleteBtn = document.createElement("div");
+      deleteBtn.textContent = "Delete";
+      deleteBtn.classList.add("delete-event");
+      deleteBtn.addEventListener("click", () => {
+        box.remove();
+        saveCurrentDayEvents();
+      });
+
+      controls.appendChild(colorPicker);
+      controls.appendChild(deleteBtn);
+
+      const textArea = document.createElement("textarea");
+      textArea.placeholder = "Event details...";
+      textArea.value = text;
+      textArea.addEventListener('input', () => {
+        saveCurrentDayEvents();
+      });
+
+      box.appendChild(controls);
+      box.appendChild(textArea);
+
+      return box;
+    }
+
+    function saveCurrentDayEvents() {
+      if (!currentDateId) return;
+
+      const boxes = Array.from(eventSpace.querySelectorAll(".event-box"));
+      const events = boxes.map(box => {
+        const textArea = box.querySelector("textarea");
+        const colorPicker = box.querySelector("input[type='color']");
+        return {
+          text: textArea ? textArea.value : "",
+          color: colorPicker ? colorPicker.value : "#f8f8f8"
+        };
+      });
+
+      if (events.length > 0) {
+        eventsByDate[currentDateId] = events;
+      } else {
+        delete eventsByDate[currentDateId];
+      }
+
+      saveEventsToStorage();
+      updateCalendarMarkers();
+    }
+
+    function loadEventsForDate(dateId) {
+      eventSpace.innerHTML = "";
+      const events = eventsByDate[dateId] || [];
+      events.forEach(ev => {
+        const box = createEventBox(ev);
+        eventSpace.appendChild(box);
+      });
+    }
+
+    function updateCalendarMarkers() {
+      const cells = document.querySelectorAll("td[data-date-id]");
+      cells.forEach(cell => {
+        const id = cell.dataset.dateId;
+        if (eventsByDate[id] && eventsByDate[id].length > 0) {
+          cell.classList.add('has-events');
+        } else {
+          cell.classList.remove('has-events');
+        }
+      });
+    }
+
+    // ----- Day view -----
+    closeDayView.addEventListener("click", () => {
+      saveCurrentDayEvents();
+      dayView.style.display = "none";
+      currentDateId = null;
+    });
+
+    newEventBoxBtn.addEventListener("click", () => {
+      if (!currentDateId) return; // no day selected
+      const box = createEventBox();
+      eventSpace.appendChild(box);
+      saveCurrentDayEvents();
     });
 
     function openDayView(monthIndex, day) {
-      const monthName = months[monthIndex];
-      dayViewContent.textContent = `${monthName} ${day}, ${year}`;
-      dayView.style.display = 'flex';
+      // Save events for previously open day
+      saveCurrentDayEvents();
+
+      const dateId = formatDateId(year, monthIndex, day);
+      currentDateId = dateId;
+
+      dayViewContent.textContent = formatDisplayDate(year, monthIndex, day);
+      loadEventsForDate(dateId);
+
+      dayView.style.display = "flex";
     }
 
+    // ----- Export / Import -----
+    exportBtn.addEventListener('click', () => {
+      saveCurrentDayEvents();
+      const payload = {
+        year,
+        eventsByDate
+      };
+      importExportArea.value = JSON.stringify(payload, null, 2);
+      importExportArea.style.display = 'block';
+      importExportArea.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    importBtn.addEventListener('click', () => {
+      if (importExportArea.style.display === 'none') {
+        importExportArea.style.display = 'block';
+        importExportArea.placeholder = 'Paste events JSON here and click Import again.';
+        importExportArea.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+
+      try {
+        const text = importExportArea.value.trim();
+        if (!text) {
+          alert('Nothing to import. Paste JSON first.');
+          return;
+        }
+        const parsed = JSON.parse(text);
+        const incoming = parsed.eventsByDate || parsed;
+        if (!incoming || typeof incoming !== 'object') {
+          alert('Invalid format: no eventsByDate found.');
+          return;
+        }
+
+        eventsByDate = incoming;
+        saveEventsToStorage();
+
+        if (currentDateId) {
+          loadEventsForDate(currentDateId);
+        }
+        updateCalendarMarkers();
+        alert('Events imported successfully!');
+      } catch (e) {
+        console.error('Import error', e);
+        alert('Failed to parse JSON. Check the format and try again.');
+      }
+    });
+
+    // ----- Build calendar -----
     // Header row
     let headerRow = document.createElement("tr");
     const emptyTh = document.createElement("th");
-    emptyTh.classList.add('day-col');
+    emptyTh.classList.add("day-col");
     headerRow.appendChild(emptyTh);
 
     months.forEach(m => {
@@ -117,7 +432,7 @@
 
       let dayLabel = document.createElement("td");
       dayLabel.textContent = day;
-      dayLabel.classList.add('day-col');
+      dayLabel.classList.add("day-col");
       row.appendChild(dayLabel);
 
       months.forEach((_, monthIndex) => {
@@ -127,24 +442,37 @@
         if (day <= daysInMonth) {
           cell.textContent = day;
 
+          // internal date id
+          const dateId = formatDateId(year, monthIndex, day);
+          cell.dataset.dateId = dateId;
+
           // Highlight today's date
           const today = new Date();
-          if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
-            cell.classList.add('today');
+          if (
+            year === today.getFullYear() &&
+            monthIndex === today.getMonth() &&
+            day === today.getDate()
+          ) {
+            cell.classList.add("today");
           }
 
+          // Day of week (0 = Sunday, 6 = Saturday)
           const dow = new Date(year, monthIndex, day).getDay();
           if (dow === 0 || dow === 6) cell.classList.add("weekend");
-          if (dow === 0) cell.classList.add('week-cell');
+          if (dow === 0) cell.classList.add("week-cell");
 
-          // Add click behavior
-          cell.addEventListener('click', () => openDayView(monthIndex, day));
+          // Add click behavior for day view
+          cell.addEventListener("click", () => openDayView(monthIndex, day));
         }
+
         row.appendChild(cell);
       });
 
       table.appendChild(row);
     }
+
+    // Initial markers based on stored events
+    updateCalendarMarkers();
   </script>
 </body>
 </html>
