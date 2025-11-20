@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Year Calendar</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+      font-size: 12px;
+      vertical-align: middle;
+      cursor: pointer;
+    }
+    th {
+      background-color: #f0f0f0;
+      font-weight: bold;
+      cursor: default;
+    }
+    .week-cell {
+      border-top: 2px solid #333;
+    }
+    .weekend {
+      background-color: #ffe6e6;
+    }
+    .day-col {
+      width: 40px;
+      font-weight: bold;
+      cursor: default;
+    }
+
+    .today {
+      background-color: yellow !important;
+    }
+
+    /* Day View popup */
+    #dayView {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: white;
+      display: none;
+      flex-direction: column;
+      padding: 20px;
+      box-sizing: border-box;
+      z-index: 999;
+    }
+    #closeDayView {
+      font-size: 24px;
+      cursor: pointer;
+      margin-bottom: 20px;
+      width: fit-content;
+    }
+    #dayViewContent {
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Year Calendar</h1>
+
+  <table id="calendar"></table>
+
+  <!-- Day View Popup -->
+  <div id="dayView">
+    <div id="closeDayView">✖</div>
+    <div id="dayViewContent"></div>
+  </div>
+
+  <script>
+    const year = new Date().getFullYear();
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    const maxDays = 31;
+    const table = document.getElementById("calendar");
+    const dayView = document.getElementById("dayView");
+    const closeDayView = document.getElementById("closeDayView");
+    const dayViewContent = document.getElementById("dayViewContent");
+
+    closeDayView.addEventListener('click', () => {
+      dayView.style.display = 'none';
+    });
+
+    function openDayView(monthIndex, day) {
+      const monthName = months[monthIndex];
+      dayViewContent.textContent = `${monthName} ${day}, ${year}`;
+      dayView.style.display = 'flex';
+    }
+
+    // Header row
+    let headerRow = document.createElement("tr");
+    const emptyTh = document.createElement("th");
+    emptyTh.classList.add('day-col');
+    headerRow.appendChild(emptyTh);
+
+    months.forEach(m => {
+      let th = document.createElement("th");
+      th.textContent = m;
+      headerRow.appendChild(th);
+    });
+    table.appendChild(headerRow);
+
+    // Fill rows for days 1–31
+    for (let day = 1; day <= maxDays; day++) {
+      let row = document.createElement("tr");
+
+      let dayLabel = document.createElement("td");
+      dayLabel.textContent = day;
+      dayLabel.classList.add('day-col');
+      row.appendChild(dayLabel);
+
+      months.forEach((_, monthIndex) => {
+        let cell = document.createElement("td");
+        let daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+
+        if (day <= daysInMonth) {
+          cell.textContent = day;
+
+          // Highlight today's date
+          const today = new Date();
+          if (year === today.getFullYear() && monthIndex === today.getMonth() && day === today.getDate()) {
+            cell.classList.add('today');
+          }
+
+          const dow = new Date(year, monthIndex, day).getDay();
+          if (dow === 0 || dow === 6) cell.classList.add("weekend");
+          if (dow === 0) cell.classList.add('week-cell');
+
+          // Add click behavior
+          cell.addEventListener('click', () => openDayView(monthIndex, day));
+        }
+        row.appendChild(cell);
+      });
+
+      table.appendChild(row);
+    }
+  </script>
+</body>
+</html>
